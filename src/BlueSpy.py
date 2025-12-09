@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
-from interface import bcolors, color_print, log_info, log_warn, input_yn
+from interface import  log_info, log_warn, input_yn
 from core import connect, BluezTarget, BluezAddressType, pair, record, playback
 import time
 
 def main():
-    # Cool banner...
-    color_print(bcolors.HEADER, "░█▀▄░█░░░█░█░█▀▀░█▀▀░█▀█░█░█░")
-    color_print(bcolors.HEADER, "░█▀▄░█░░░█░█░█▀▀░▀▀█░█▀▀░░█░░")
-    color_print(bcolors.HEADER, "░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀▀▀░▀░░░░▀░░")
-    color_print(bcolors.HEADER, "░▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀░")
-    print(f"Bluetooth audio recording tool by {bcolors.HEADER}Tarlogic{bcolors.ENDC}")
 
     # Parse command line arguments...
     parser = argparse.ArgumentParser(
